@@ -47,14 +47,18 @@ theme_profile() {
   local user_chrome="$profile/chrome/userChrome.css"
   local tmp
 
-  mkdir -p "$profile/chrome"
-  cp "$THEME_CSS" "$profile/chrome/omarchy.css"
+  mkdir -p "$profile/chrome" || return 1
+  cp "$THEME_CSS" "$profile/chrome/omarchy.css" || return 1
 
   if [[ ! -f $user_chrome ]]; then
-    printf '%s\n' "$IMPORT_LINE" >"$user_chrome"
+    printf '%s\n' "$IMPORT_LINE" >"$user_chrome" || return 1
   elif ! grep -qxF "$IMPORT_LINE" "$user_chrome"; then
-    tmp=$(mktemp)
-    { printf '%s\n' "$IMPORT_LINE"; cat "$user_chrome"; } >"$tmp"
+    # The user's file is only overwritten once its new contents are complete.
+    tmp=$(mktemp) || return 1
+    if ! { printf '%s\n' "$IMPORT_LINE" && cat "$user_chrome"; } >"$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
     cat "$tmp" >"$user_chrome"
     rm -f "$tmp"
   fi
@@ -62,23 +66,28 @@ theme_profile() {
   # Browsers only load userChrome.css with this pref set.
   if ! grep -qxF "$STYLESHEETS_PREF" "$profile/user.js" 2>/dev/null; then
     [[ -s $profile/user.js && -n $(tail -c1 "$profile/user.js") ]] && echo >>"$profile/user.js"
-    printf '%s\n' "$STYLESHEETS_PREF" >>"$profile/user.js"
+    printf '%s\n' "$STYLESHEETS_PREF" >>"$profile/user.js" || return 1
   fi
 }
 
 declare -A themed=()
+failed=0
 for browser in "${BROWSERS[@]}"; do
   IFS=: read -r root process name <<<"$browser"
   [[ -f $root/profiles.ini ]] || continue
 
   while IFS= read -r profile; do
     [[ -d $profile ]] || continue
-    theme_profile "$profile"
-    themed[$process]=$name
+    if theme_profile "$profile"; then
+      themed[$process]=$name
+    else
+      echo "Could not theme the $name profile $profile" >&2
+      failed=1
+    fi
   done < <(profile_dirs "$root")
 done
 
-(( ${#themed[@]} > 0 )) || exit 0
+(( ${#themed[@]} > 0 )) || exit "$failed"
 
 # A running browser keeps the stylesheet it started with, so ask for a restart.
 running=""
@@ -93,4 +102,4 @@ if [[ -n $running ]]; then
   omarchy-notification-send "$(omarchy-i18n theme.restartBrowser "$running")" -t 4000
 fi
 
-exit 0
+exit "$failed"

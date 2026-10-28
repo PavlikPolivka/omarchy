@@ -58,6 +58,20 @@ pass "Firefox theme sync themes relative and absolute profiles"
   fail "Firefox theme sync imports the theme above the user's own rules, once" "$(cat "$relative/chrome/userChrome.css")"
 pass "Firefox theme sync keeps the user's userChrome.css"
 
+# A failed temporary copy must leave the user's stylesheet as it was and be
+# reported, so omarchy-theme-set names the failed retint.
+FAILING_BIN="$TEST_HOME/failing-bin"
+mkdir -p "$FAILING_BIN"
+printf '#!/bin/bash\nexit 1\n' >"$FAILING_BIN/mktemp"
+chmod +x "$FAILING_BIN/mktemp"
+printf '#urlbar { display: none; }\n' >"$relative/chrome/userChrome.css"
+if PATH="$FAILING_BIN:$FAKE_BIN:$ROOT/bin:$PATH" HOME="$TEST_HOME" "$ROOT/bin/omarchy-theme-set-firefox" 2>/dev/null; then
+  fail "Firefox theme sync reports a profile it could not theme"
+fi
+[[ $(<"$relative/chrome/userChrome.css") == "#urlbar { display: none; }" ]] ||
+  fail "Firefox theme sync keeps userChrome.css when its copy fails" "$(cat "$relative/chrome/userChrome.css")"
+pass "Firefox theme sync keeps userChrome.css when its copy fails"
+
 rm -rf "$absolute/chrome"
 mkdir -p "$TEST_HOME/.local/state/omarchy/toggles"
 touch "$TEST_HOME/.local/state/omarchy/toggles/skip-firefox-theme-changes"
